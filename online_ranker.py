@@ -5,11 +5,15 @@ import re
 from sentence_transformers import SentenceTransformer
 
 model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-index = faiss.read_index("internships.faiss")
 
-df = pd.read_csv(
-    r"C:\Users\ASUS\OneDrive\Documents\Internship Recommendation\trying_to_be_fast.py\internship_data_modified_v2.csv"
-)
+# Point to the correct location of FAISS index and vectors
+index_path = r"C:\Users\ASUS\OneDrive\Documents\Internship Recommendation\internships.faiss"
+vectors_path = r"C:\Users\ASUS\OneDrive\Documents\Internship Recommendation\internship_vectors.npy"
+data_path = r"C:\Users\ASUS\OneDrive\Documents\Internship Recommendation\trying_to_be_fast.py\internship_data_modified_v2.csv"
+
+index = faiss.read_index(index_path)
+
+df = pd.read_csv(data_path)
 
 student_text = """Skills: Python, Machine Learning Python Developer, NumPy, Pandas
 Projects: CNN image classifier
@@ -159,6 +163,64 @@ def exp_match(student_exp_text, internship_exp_text):
     else:
         return 0.2
     
+def extract_company(internship_text):
+    """Extract company name from internship text."""
+    company_match = re.search(r'we are\s+([^.]+)\.', internship_text, re.IGNORECASE)
+    return company_match.group(1).strip() if company_match else "Unknown Company"
+
+
+def apply_diversity_penalty(results, internship_data, penalty_decay=0.75, max_per_company=3):
+    """
+    Apply diversity penalty to reduce duplicate companies in recommendations.
+    
+    Args:
+        results: List of ranked results
+        internship_data: Raw internship data list
+        penalty_decay: Factor to multiply scores by for repeated companies (0.0-1.0)
+                      Lower = stronger penalty. Default 0.75 = 25% penalty
+        max_per_company: Max internships from same company to show (None = no limit)
+    
+    Returns:
+        Re-ranked results with diversity penalty applied
+    """
+    company_count = {}
+    diversified_results = []
+    
+    for r in results:
+        idx = r["internship_id"]
+        internship_text = internship_data[idx]
+        company = extract_company(internship_text)
+        
+        # Count how many times this company has appeared
+        times_seen = company_count.get(company, 0)
+        company_count[company] = times_seen + 1
+        
+        # If max_per_company is set, skip if exceeded
+        if max_per_company and times_seen >= max_per_company:
+            continue
+        
+        # Apply penalty based on how many times company appeared
+        penalty_multiplier = penalty_decay ** times_seen
+        
+        # Create penalized copy
+        r_penalized = r.copy()
+        r_penalized["final_score"] = r["final_score"] * penalty_multiplier
+        r_penalized["company_name"] = company
+        r_penalized["company_count"] = times_seen + 1
+        r_penalized["original_score"] = r["final_score"]
+        
+        diversified_results.append(r_penalized)
+    
+    # Re-sort by penalized scores
+    diversified_results = sorted(
+        diversified_results,
+        key=lambda x: x["final_score"],
+        reverse=True
+    )
+    
+    return diversified_results
+
+
 def explainability(scores):
 
     reasons = []
@@ -312,6 +374,9 @@ results = sorted(
     reverse=True
 )
 
+# Apply diversity penalty to reduce duplicate companies
+results = apply_diversity_penalty(results, internship_data, penalty_decay=0.75, max_per_company=None)
+
 # ... (after the sort) ...
 
 def print_recommendations(results, internship_data, top_k=5):
@@ -337,9 +402,13 @@ def print_recommendations(results, internship_data, top_k=5):
         filled = int(score_pct / 5)
         score_bar = "#" * filled + "-" * (20 - filled)
         
+        # Diversity info
+        company_count = r.get("company_count", 1)
+        diversity_note = f" (Company appearance #{company_count})" if company_count > 1 else ""
+        
         # Print recommendation header
         print(f"\n{'-' * 90}")
-        print(f"[*] RANK #{rank} | Score: {score_pct:>6.2f}% [{score_bar}]")
+        print(f"[*] RANK #{rank} | Score: {score_pct:>6.2f}% [{score_bar}]{diversity_note}")
         print(f"{'-' * 90}")
         print(f"Company:     {company}")
         print(f"Position:    {job_title}")
@@ -350,6 +419,13 @@ def print_recommendations(results, internship_data, top_k=5):
         print(f"  - Location Match:    {r['location']:.1f}")
         print(f"  - Stipend Match:     {r['stipend']:.1f}")
         print(f"  - Experience Match:  {r['experience']:.1f}")
+        
+        # Show penalty info if applied
+        if "original_score" in r and r["original_score"] != r["final_score"]:
+            original_pct = round(r["original_score"] * 100, 2)
+            print(f"\nDiversity Adjustment:")
+            print(f"  - Original Score:    {original_pct:.2f}%")
+            print(f"  - Penalty Applied:   {(1 - r['final_score']/r['original_score'])*100:.1f}%")
         
         # Print explainability reasons
         print(f"\nWhy this match:")

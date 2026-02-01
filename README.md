@@ -205,6 +205,21 @@ Both student and internship data are parsed for:
 - [ ] Support **batch recommendations** for multiple students
 - [ ] Integrate **real-time updates** to internship index without rebuilding
 
+## Diversity & De-duplication
+
+The recommender includes a simple diversity mechanism to avoid returning many results from the same employer in the top-K recommendations. This improves user experience by exposing students to a variety of employers while still prioritizing high-quality matches.
+
+- **Approach**: a configurable penalty is applied to the score of internships from companies that have already appeared in the ranked list. The penalty decays multiplicatively for each repeated appearance (default decay = 0.75).
+- **Effect**: First item from a company keeps its original score, the second is multiplied by 0.75, the third by 0.75^2, etc. This produces a balance between relevance and variety.
+
+### How to tune
+
+- To make results more diverse, lower the `penalty_decay` (e.g. 0.5 for stronger penalty).  
+- To make results more tolerant of repeats, raise the `penalty_decay` (e.g. 0.9 for weaker penalty).  
+- Optionally set `max_per_company` to hard-limit the number of results per employer.
+
+The function implementing this behavior is `apply_diversity_penalty()` in `online_ranker.py` and is enabled by default in the example workflow.
+
 ## Dependencies
 
 | Package | Purpose |
