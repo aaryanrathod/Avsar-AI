@@ -314,14 +314,56 @@ results = sorted(
 
 # ... (after the sort) ...
 
-for rank, r in enumerate(results[:5], 1):
-    idx = r["internship_id"]
-    print(f"\nRank {rank}")
+def print_recommendations(results, internship_data, top_k=5):
+    """Pretty-print top-K recommendations with improved readability."""
     
-    # Fetch the original text using the ID
-    print(internship_data[idx][:2000] + "...") # Printing first 200 chars
+    print("\n" + "=" * 90)
+    print(f"{'TOP INTERNSHIP RECOMMENDATIONS':^90}")
+    print("=" * 90)
     
-    print("Score:", round(r["final_score"] * 100, 2), "%")
+    for rank, r in enumerate(results[:top_k], 1):
+        idx = r["internship_id"]
+        internship_text = internship_data[idx]
+        
+        # Extract company and job title if available
+        company_match = re.search(r'we are\s+([^.]+)\.', internship_text, re.IGNORECASE)
+        title_match = re.search(r'job title:\s+([^.]+)', internship_text, re.IGNORECASE)
+        
+        company = company_match.group(1).strip() if company_match else "Unknown Company"
+        job_title = title_match.group(1).strip() if title_match else "Unknown Position"
+        
+        # Format score with visual indicator
+        score_pct = round(r["final_score"] * 100, 2)
+        filled = int(score_pct / 5)
+        score_bar = "#" * filled + "-" * (20 - filled)
+        
+        # Print recommendation header
+        print(f"\n{'-' * 90}")
+        print(f"[*] RANK #{rank} | Score: {score_pct:>6.2f}% [{score_bar}]")
+        print(f"{'-' * 90}")
+        print(f"Company:     {company}")
+        print(f"Position:    {job_title}")
+        
+        # Print score breakdown
+        print(f"\nScore Breakdown:")
+        print(f"  - Semantic Match:    {r['scores']['semantic']:.3f}")
+        print(f"  - Location Match:    {r['location']:.1f}")
+        print(f"  - Stipend Match:     {r['stipend']:.1f}")
+        print(f"  - Experience Match:  {r['experience']:.1f}")
+        
+        # Print explainability reasons
+        print(f"\nWhy this match:")
+        for reason in r["explanation"]:
+            print(f"  [+] {reason}")
+        
+        # Print truncated description
+        description = internship_text[:800]
+        if len(internship_text) > 800:
+            description += "..."
+        print(f"\nDescription Preview:\n{description}")
     
-    for reason in r["explanation"]:
-        print("-", reason)
+    print(f"\n{'=' * 90}\n")
+
+
+# Run the recommendation display
+print_recommendations(results, internship_data, top_k=5)
